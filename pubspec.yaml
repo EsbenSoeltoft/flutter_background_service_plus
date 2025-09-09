@@ -1,4 +1,4 @@
-name: flutter_background_service
+name: flutter_background_service_plus
 
 environment:
   sdk: ">=2.17.5 <4.0.0"
@@ -6,3 +6,4 @@ environment:
 
 dependencies:
   melos: ^6.1.0
+  
