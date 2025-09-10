@@ -62,7 +62,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
     private String[] foregroundTypes;
 
     private Handler mainHandler;
-    private String currentTag = "LOCATION_DEFAULT";
+    private String currentTag = "location_default";
 
     public static final Set<String> ACTIVE_TAGS = Collections.synchronizedSet(new HashSet<>());
 
@@ -88,7 +88,6 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
     @Override
     public void onCreate() {
         super.onCreate();
-        //FlutterBackgroundServicePlugin.servicePipe.addListener(this.listener);
         this.mainHandler = new Handler(Looper.getMainLooper());
         // Config is initialized in onStartCommand where tag is known
     }
@@ -127,6 +126,8 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
                 myPipe.removeListener(listener);
             }
         } catch (Throwable ignored) {}
+
+        FlutterBackgroundServicePlugin.removeTagFromPluginState(currentTag);
 
         this.methodChannel = null;
         this.dartEntrypoint = null;
@@ -255,11 +256,19 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (this.isRunning.get()) {
             if (this.config != null) updateNotificationInfo();
-            return START_NOT_STICKY;
+            return START_REDELIVER_INTENT;
         }
 
-        // Tag from intent
-        this.currentTag = (intent != null && intent.hasExtra("tag")) ? intent.getStringExtra("tag") : "location_default";
+        // Tag from intent or shared prefs  
+        String tagFromIntent = (intent != null && intent.hasExtra("tag"))
+                    ? intent.getStringExtra("tag")
+                    : null;
+
+        if (tagFromIntent == null || tagFromIntent.isEmpty()) {
+            tagFromIntent = getSharedPreferences("bgsvc", MODE_PRIVATE)
+                    .getString(getClass().getName() + ":last_tag", "location_default");
+        }
+        this.currentTag = (tagFromIntent == null || tagFromIntent.isEmpty()) ? "location_default" : tagFromIntent;
 
         // Register this tag as active
         ACTIVE_TAGS.add(currentTag); 
@@ -275,7 +284,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         // Load notification settings from this tag’s config
         String storedChannelId = this.config.getNotificationChannelId();
         if (storedChannelId == null || storedChannelId.trim().isEmpty()) {
-            this.notificationChannelId = "FOREGROUND_LOCATION";
+            this.notificationChannelId = "FOREGROUND_" + this.currentTag;
             createNotificationChannel();
         } else {
             this.notificationChannelId = storedChannelId;
@@ -285,7 +294,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         this.notificationContent = this.config.getInitialNotificationContent();
         this.notificationId = this.config.getForegroundNotificationId();
         if (this.notificationId <= 0) {
-            this.notificationId = 888; // sane fallback
+            this.notificationId = 1000 + Math.abs(this.currentTag.hashCode() % 800000); // sane fallback
         }
         this.configForegroundTypes = this.config.getForegroundServiceTypes();
         
@@ -299,13 +308,22 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         WatchdogReceiver.enqueue(this);
         runService(this.currentTag); // pass tag down so Dart entrypoint also knows it
 
-        return START_NOT_STICKY;
+        return START_REDELIVER_INTENT;
     }
 
     @SuppressLint("WakelockTimeout")
     private void runService(String tag) {
-        if (this.isRunning.get() || (this.backgroundEngine != null && this.backgroundEngine.getDartExecutor().isExecutingDart())) {
-            Log.v(TAG, "Service already running, using existing service");
+        // If we *know* we’re running, bail.
+        if (this.isRunning.get()) {
+            Log.v(TAG, "Service already running (flag) for tag= " + tag);
+            return;
+        }
+
+        // If we already have an engine *and it’s executing Dart*, bail.
+        if (this.backgroundEngine != null
+                && this.backgroundEngine.getDartExecutor().isExecutingDart()) {
+            Log.v(TAG, "Dart already executing for tag=" + tag);
+            this.isRunning.set(true); // keep flag consistent
             return;
         }
 

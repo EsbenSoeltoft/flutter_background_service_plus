@@ -90,7 +90,6 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
     @Override
     public void onCreate() {
         super.onCreate();
-        //FlutterBackgroundServicePlugin.servicePipe.addListener(this.listener);
         this.mainHandler = new Handler(Looper.getMainLooper());
         // Config is initialized in onStartCommand where tag is known
     }
@@ -130,6 +129,8 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
             }
         } catch (Throwable ignored) {}
         
+        FlutterBackgroundServicePlugin.removeTagFromPluginState(currentTag);
+
         this.methodChannel = null;
         this.dartEntrypoint = null;
 
@@ -258,11 +259,19 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (this.isRunning.get()) {
             if (this.config != null) updateNotificationInfo();
-            return START_NOT_STICKY;
+            return START_REDELIVER_INTENT;
         }
 
-        // Tag from intent
-        this.currentTag = (intent != null && intent.hasExtra("tag")) ? intent.getStringExtra("tag") : "default";
+        // Tag from intent or shared prefs  
+        String tagFromIntent = (intent != null && intent.hasExtra("tag"))
+                    ? intent.getStringExtra("tag")
+                    : null;
+
+        if (tagFromIntent == null || tagFromIntent.isEmpty()) {
+            tagFromIntent = getSharedPreferences("bgsvc", MODE_PRIVATE)
+                    .getString(getClass().getName() + ":last_tag", "default");
+        }
+        this.currentTag = (tagFromIntent == null || tagFromIntent.isEmpty()) ? "default" : tagFromIntent;
 
         // Register this tag as active
         ACTIVE_TAGS.add(currentTag);   
@@ -299,7 +308,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         this.notificationContent = this.config.getInitialNotificationContent();
         this.notificationId = this.config.getForegroundNotificationId();
         if (this.notificationId <= 0) {
-            this.notificationId = 888; // sane fallback
+            this.notificationId = 1000 + Math.abs(this.currentTag.hashCode() % 800000); // sane fallback
         }
         this.configForegroundTypes = this.config.getForegroundServiceTypes();
 
@@ -313,13 +322,23 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         WatchdogReceiver.enqueue(this);
         runService(this.currentTag);
 
-        return START_NOT_STICKY;
+        return START_REDELIVER_INTENT; // ask Android to keep the extras next time
+        //return START_NOT_STICKY;
     }
 
     @SuppressLint("WakelockTimeout")
     private void runService(String tag) {
-        if (this.isRunning.get() || (this.backgroundEngine != null && this.backgroundEngine.getDartExecutor().isExecutingDart())) {
-            Log.v(TAG, "Service already running, using existing service");
+        // If we *know* we’re running, bail.
+        if (this.isRunning.get()) {
+            Log.v(TAG, "Service already running (flag) for tag= " + tag);
+            return;
+        }
+
+        // If we already have an engine *and it’s executing Dart*, bail.
+        if (this.backgroundEngine != null
+                && this.backgroundEngine.getDartExecutor().isExecutingDart()) {
+            Log.v(TAG, "Dart already executing for tag=" + tag);
+            this.isRunning.set(true); // keep flag consistent
             return;
         }
 

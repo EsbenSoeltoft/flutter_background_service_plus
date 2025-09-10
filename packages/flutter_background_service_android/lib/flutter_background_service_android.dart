@@ -9,21 +9,20 @@ import 'package:flutter_background_service_platform_interface/flutter_background
 
 bool _isMainIsolate = true;
 
-String _runtimeTag = 'default'; // this will be set in the entrypoint
-
-String get currentServiceTag => _runtimeTag;
-
 @pragma('vm:entry-point')
 Future<void> entrypoint(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   _isMainIsolate = false;
 
-  final service = AndroidServiceInstance._();
+  print('Starting background service with args=$args');
 
-  final int handle = int.parse(args[0]);
-  _runtimeTag = args.length > 1 ? args[1] : 'default';
+  // args[0] = background handle; args[1] = tag (from Java)
+  final handle = int.parse(args[0]);
+  final tag = args.length > 1 ? args[1] : 'default';
 
-  print('Starting background service with tag=$_runtimeTag');
+  print('Starting background service with tag=$tag');
+
+  final service = AndroidServiceInstance._(tag);
 
   final callbackHandle = CallbackHandle.fromRawHandle(handle);
   final onStart = PluginUtilities.getCallbackFromHandle(callbackHandle);
@@ -33,12 +32,14 @@ Future<void> entrypoint(List<String> args) async {
 }
 
 class AndroidServiceInstance extends ServiceInstance {
+  String runtimeTag = 'default'; // this will be set in the entrypoint
+
   static const MethodChannel _channel = const MethodChannel(
     'id.flutter/background_service_android_bg',
     JSONMethodCodec(),
   );
 
-  AndroidServiceInstance._() {
+  AndroidServiceInstance._(this.runtimeTag) {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
@@ -59,7 +60,7 @@ class AndroidServiceInstance extends ServiceInstance {
     _channel.invokeMethod('sendData', {
       'method': method,
       'args': args,
-      'tag': currentServiceTag,
+      'tag': runtimeTag,
     });
   }
 

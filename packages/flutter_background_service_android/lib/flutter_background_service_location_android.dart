@@ -2,25 +2,20 @@ library flutter_background_service_location_android;
 
 import 'dart:async';
 import 'dart:ui';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_background_service_platform_interface/flutter_background_service_platform_interface.dart';
-
-String _runtimeTag = 'location'; // this will be set in the entrypointLocation
-
-String get currentServiceTag => _runtimeTag;
 
 @pragma('vm:entry-point')
 Future<void> entrypointLocation(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final service = AndroidServiceInstance._();
-
   final int handle = int.parse(args[0]);
-  _runtimeTag = args.length > 1 ? args[1] : 'location';
+  final tag = args.length > 1 ? args[1] : 'location';
 
-  print('Starting background service location with tag=$_runtimeTag');
+  final service = AndroidServiceInstance._(tag);
+
+  print('Starting background service location with tag=$tag');
 
   // If you want the tag inside the Dart isolate, you can store it globally or pass to your onStart
   final callbackHandle = CallbackHandle.fromRawHandle(handle);
@@ -33,13 +28,15 @@ Future<void> entrypointLocation(List<String> args) async {
 /// The background-side service instance for the *default* service.
 /// (Your existing file likely already has this; keeping here for completeness.)
 class AndroidServiceInstance extends ServiceInstance {
+  String runtimeTag = 'location'; // this will be set in the entrypointLocation
+
   // IMPORTANT: use the LOCATION background channel to match your Java service
   static const MethodChannel _channel = MethodChannel(
     'id.flutter/background_service_location_android_bg',
     JSONMethodCodec(),
   );
 
-  AndroidServiceInstance._() {
+  AndroidServiceInstance._(this.runtimeTag) {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
@@ -60,7 +57,7 @@ class AndroidServiceInstance extends ServiceInstance {
     _channel.invokeMethod('sendData', {
       'method': method,
       'args': args,
-      'tag': currentServiceTag,
+      'tag': runtimeTag,
     });
   }
 

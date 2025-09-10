@@ -27,6 +27,11 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
 import java.util.concurrent.ConcurrentHashMap;
+import android.content.SharedPreferences;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
+
 
 /**
  * FlutterBackgroundServicePlugin
@@ -39,10 +44,9 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
     private final Map<String, Intent> runningServices = new HashMap<>();
 
     // Map of tag -> Pipe
-    //private final Map<String, Pipe> pipesByTag = new HashMap<>();
     private static final Map<String, Pipe> pipesByTag = new ConcurrentHashMap<>();
     // Map of tag -> List of sinks
-    private final Map<String, List<EventChannel.EventSink>> sinksByTag = new HashMap<>();
+    private static final Map<String, List<EventChannel.EventSink>> sinksByTag = new HashMap<>();
 
     private MethodChannel channel;
     private EventChannel eventChannel;
@@ -75,6 +79,19 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
         return pipesByTag.get(tag);
     }
 
+    public static void removeTagFromPluginState(String tag) {
+        synchronized (pipesByTag) {
+            Pipe p = pipesByTag.remove(tag);
+            if (p != null) {
+                try { p.removeAllListeners(); } catch (Throwable ignored) {}
+            }
+        }
+        // Clear UI sinks for that tag
+        synchronized (sinksByTag) {
+            sinksByTag.remove(tag);
+        }
+    }
+
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
         this.context = flutterPluginBinding.getApplicationContext();
@@ -105,6 +122,12 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 ? BackgroundServiceLocation.class
                 : BackgroundService.class;
 
+        // Persist last_tag (fallback if Intent extras are lost)
+        context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
+            .edit()
+            .putString(serviceClass.getName() + ":last_tag", tag)
+            .apply();
+
         Intent intent = new Intent(context, serviceClass);
         intent.putExtra("tag", tag);
         intent.putExtra("serviceType", serviceType);
@@ -113,8 +136,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             runningServices.put(tag, new Intent(intent));
         }
 
-        // Create and store a dedicated Pipe for this tag
-        getOrCreatePipeForTag(tag);
+        getOrCreatePipeForTag(tag); // ensure pipe exists
 
         try {
             if (isForeground) {
@@ -128,33 +150,45 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             synchronized (runningServices) {
                 runningServices.remove(tag);
             }
+            context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
+                .edit()
+                .remove(serviceClass.getName() + ":last_tag")
+                .apply();
         }
     }
 
     private boolean stop(String tag) {
         if (tag == null || tag.isEmpty()) tag = "default";
 
+
+        // peek the current intent first (don’t remove yet)
         Intent intent;
         synchronized (runningServices) {
-            intent = runningServices.remove(tag);
+            intent = runningServices.get(tag);
         }
 
-        synchronized (pipesByTag) {
-            pipesByTag.remove(tag);
-        }
-
-        synchronized (sinksByTag) {
-            sinksByTag.remove(tag);
-        }
-
+        // best-effort: stop OS service
+        boolean stopped = false;
         if (intent != null) {
-            boolean stopped = context.stopService(intent);
+            stopped = context.stopService(intent);
             Log.i(TAG, "Requested stop for tag=" + tag + " result=" + stopped);
-            return true;
         } else {
             Log.w(TAG, "Stop requested for tag=" + tag + " but no running service tracked.");
-            return false;
         }
+
+        // clean local state for this tag
+        synchronized (runningServices) { runningServices.remove(tag); }
+        removeTagFromPluginState(tag);
+
+        // clear both last_tag keys (harmless if absent)
+        SharedPreferences sp = context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE);
+        sp.edit()
+        .remove(BackgroundService.class.getName() + ":last_tag")
+        .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
+        .apply();
+
+        Log.i(TAG, "Requested stop for tag=" + tag + " result=" + stopped);
+        return stopped;
     }
 
     private void stopAllServices() {
@@ -177,6 +211,12 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             if (mainPipe.hasListener()) {
                 mainPipe.invoke(msg);
             }
+            context.getSharedPreferences("fbsp", Context.MODE_PRIVATE)
+                .edit()
+                .remove(BackgroundService.class.getName() + ":last_tag")
+                .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
+                .apply();
+                
         } catch (Exception ignore) {
             Log.w(TAG, "Failed to broadcast stopService message: " + ignore.getMessage(), ignore);
         }
@@ -241,7 +281,8 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                     return;
                 }
 
-                String tag = arg.getString("tag");
+                // 1) Extract args
+                final String tag = arg.getString("tag"); // <- get tag first
                 long backgroundHandle = arg.getLong("background_handle");
                 boolean isForeground = arg.getBoolean("is_foreground_mode");
                 boolean autoStartOnBoot = arg.getBoolean("auto_start_on_boot");
@@ -249,7 +290,8 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 String initialNotificationTitle = arg.optString("initial_notification_title", null);
                 String initialNotificationContent = arg.optString("initial_notification_content", null);
                 String notificationChannelId = arg.optString("notification_channel_id", null);
-                Integer foregroundNotificationId = arg.has("foreground_notification_id") ? arg.getInt("foreground_notification_id") : null;
+                Integer foregroundNotificationId = arg.has("foreground_notification_id")
+                        ? arg.getInt("foreground_notification_id") : null;
                 JSONArray foregroundServiceTypes = arg.optJSONArray("foreground_service_types");
 
                 String foregroundServiceTypesStr = null;
@@ -257,13 +299,30 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                     StringBuilder sb = new StringBuilder();
                     for (int i = 0; i < foregroundServiceTypes.length(); i++) {
                         sb.append(foregroundServiceTypes.getString(i));
-                        if (i < foregroundServiceTypes.length() - 1) {
-                            sb.append(",");
-                        }
+                        if (i < foregroundServiceTypes.length() - 1) sb.append(",");
                     }
                     foregroundServiceTypesStr = sb.toString();
                 }
 
+                // 2) Resolve service class from serviceType
+                Class<?> serviceClass = "location".equalsIgnoreCase(serviceType)
+                        ? BackgroundServiceLocation.class
+                        : BackgroundService.class;
+
+                // 3) Persist registry + last_tag (per service class)
+                android.content.SharedPreferences sp =
+                        context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE);
+
+                final String registryKey = serviceClass.getName() + ":registry";
+                java.util.Set<String> tags =
+                        new java.util.HashSet<>(sp.getStringSet(registryKey, java.util.Collections.emptySet()));
+                tags.add(tag);
+                sp.edit()
+                .putStringSet(registryKey, tags)
+                .putString(serviceClass.getName() + ":last_tag", tag) // belt & suspenders fallback
+                .apply();
+
+                // 4) Store tag-scoped config in your existing Config store
                 Config tagConfig = new Config(context, tag);
                 tagConfig.setBackgroundHandle(backgroundHandle);
                 tagConfig.setIsForeground(isForeground);
@@ -274,8 +333,9 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 tagConfig.setForegroundNotificationId(foregroundNotificationId);
                 tagConfig.setForegroundServiceTypes(foregroundServiceTypesStr);
 
-                Log.d(TAG, "Configuration set for tag: " + tag);
+                Log.d(TAG, "Configuration set for tag: " + tag + " (type=" + serviceType + ")");
 
+                // 5) Optionally start now
                 if (autoStart) {
                     start(serviceType, tag);
                 }
