@@ -42,11 +42,12 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
     
     // Map of tag -> Intent
     private final Map<String, Intent> runningServices = new HashMap<>();
-
     // Map of tag -> Pipe
     private static final Map<String, Pipe> pipesByTag = new ConcurrentHashMap<>();
     // Map of tag -> List of sinks
     private static final Map<String, List<EventChannel.EventSink>> sinksByTag = new HashMap<>();
+
+    public static final Set<String> readyTags = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     private MethodChannel channel;
     private EventChannel eventChannel;
@@ -89,6 +90,10 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
         // Clear UI sinks for that tag
         synchronized (sinksByTag) {
             sinksByTag.remove(tag);
+        }
+
+        synchronized (readyTags) {
+            readyTags.remove(tag);
         }
     }
 
@@ -422,23 +427,26 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
     }
 
     private boolean isServiceRunning(String tag) {
-        if (tag == null || tag.isEmpty()) tag = "default";
+        if (tag == null || tag.isEmpty()) return false;
 
-        /// 1) Prefer explicit bookkeeping
-        synchronized (runningServices) {
-            if (runningServices.containsKey(tag)) return true;
-        }
+        // TRUE only when the Dart isolate for this tag has signaled "ready".
+        return readyTags.contains(tag);
 
-        /// 2) Check services’ own active-tag sets
-        if (BackgroundService.ACTIVE_TAGS.contains(tag)) return true;
-        if (BackgroundServiceLocation.ACTIVE_TAGS.contains(tag)) return true;
+        // /// 1) Prefer explicit bookkeeping
+        // synchronized (runningServices) {
+        //     if (runningServices.containsKey(tag)) return true;
+        // }
 
-        /// 3) Optionally: if the tag was never configured, treat as not running
-        Config cfg = new Config(context, tag);
-        if (!cfg.isConfigured()) return false;
+        // /// 2) Check services’ own active-tag sets
+        // if (BackgroundService.ACTIVE_TAGS.contains(tag)) return true;
+        // if (BackgroundServiceLocation.ACTIVE_TAGS.contains(tag)) return true;
 
-        /// 4) Don’t fall back to broad ActivityManager scan (it’s not tag-aware)
-        return false;
+        // /// 3) Optionally: if the tag was never configured, treat as not running
+        // Config cfg = new Config(context, tag);
+        // if (!cfg.isConfigured()) return false;
+
+        // /// 4) Don’t fall back to broad ActivityManager scan (it’s not tag-aware)
+        // return false;
     }
 
     @Override
@@ -455,7 +463,15 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
     }
 
     private void receiveData(JSONObject data) {
+        final String method = data.optString("method", "");
         String dataTag = data.optString("tag", null);
+
+        if ("ready".equalsIgnoreCase(method) && dataTag != null) {
+            readyTags.add(dataTag);
+        } else if (("notReady".equalsIgnoreCase(method) || "stopService".equalsIgnoreCase(method))
+                    && dataTag != null) {
+            readyTags.remove(dataTag);
+        }
 
         if ("all".equalsIgnoreCase(dataTag) || dataTag == null) {
             synchronized (sinksByTag) {

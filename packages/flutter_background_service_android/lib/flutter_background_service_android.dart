@@ -24,6 +24,12 @@ Future<void> entrypoint(List<String> args) async {
 
   final service = AndroidServiceInstance._(tag);
 
+  /// Handshake: tell the plugin this tag is ready.
+  try {
+    service.invoke(
+        'ready', {'tag': tag, 'ts': DateTime.now().millisecondsSinceEpoch});
+  } catch (_) {}
+
   final callbackHandle = CallbackHandle.fromRawHandle(handle);
   final onStart = PluginUtilities.getCallbackFromHandle(callbackHandle);
   if (onStart != null) {

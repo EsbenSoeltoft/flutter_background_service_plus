@@ -17,6 +17,11 @@ Future<void> entrypointLocation(List<String> args) async {
 
   print('Starting background service location with tag=$tag');
 
+  try {
+    service.invoke(
+        'ready', {'tag': tag, 'ts': DateTime.now().millisecondsSinceEpoch});
+  } catch (_) {}
+
   // If you want the tag inside the Dart isolate, you can store it globally or pass to your onStart
   final callbackHandle = CallbackHandle.fromRawHandle(handle);
   final onStart = PluginUtilities.getCallbackFromHandle(callbackHandle);

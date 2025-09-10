@@ -68,6 +68,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
 
     public static final Set<String> ACTIVE_TAGS = Collections.synchronizedSet(new HashSet<>());
 
+
     synchronized public static PowerManager.WakeLock getLock(Context context) {
         if (lockStatic == null) {
             PowerManager mgr = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
@@ -135,7 +136,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         this.dartEntrypoint = null;
 
         // Unregister tag
-        ACTIVE_TAGS.remove(currentTag); 
+       ACTIVE_TAGS.remove(currentTag);
 
         super.onDestroy();
     }
@@ -257,6 +258,11 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if( intent == null ) {
+            Log.w(TAG, "onStartCommand received null intent. If this is after a reboot, ignore. Otherwise, this is unexpected.");
+            return START_REDELIVER_INTENT;
+        }
+
         if (this.isRunning.get()) {
             if (this.config != null) updateNotificationInfo();
             return START_REDELIVER_INTENT;
