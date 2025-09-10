@@ -83,7 +83,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
         synchronized (pipesByTag) {
             Pipe p = pipesByTag.remove(tag);
             if (p != null) {
-                try { p.removeAllListeners(); } catch (Throwable ignored) {}
+                try { p.dispose(); } catch (Throwable ignored) {}
             }
         }
         // Clear UI sinks for that tag
@@ -216,7 +216,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 .remove(BackgroundService.class.getName() + ":last_tag")
                 .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
                 .apply();
-                
+
         } catch (Exception ignore) {
             Log.w(TAG, "Failed to broadcast stopService message: " + ignore.getMessage(), ignore);
         }

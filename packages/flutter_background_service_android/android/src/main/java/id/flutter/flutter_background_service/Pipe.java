@@ -27,6 +27,12 @@ public class Pipe {
         }
     }
 
+    public void removeAllListeners(){
+        synchronized (this){
+            this.listeners.clear();
+        }
+    }
+
     public void invoke(JSONObject object){
         synchronized (this) {
             if (!listeners.isEmpty()) {
@@ -36,5 +42,10 @@ public class Pipe {
                 }
             }
         }
+    }
+
+    public void dispose() {
+        // Make dispose the single point of teardown.
+        removeAllListeners(); 
     }
 }
