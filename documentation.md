@@ -1,5 +1,5 @@
-#📘 Flutter Background Service Plus – Extended Documentation
-##1. Background & Motivation
+# 📘 Flutter Background Service Plus – Extended Documentation
+## 1. Background & Motivation
 
 Originally, the plugin supported a single background service isolate.
 Your goal was to:
@@ -14,7 +14,7 @@ This led to extensive modifications across:
 + BackgroundServiceLocation.java
 + Dart-side managers (BackgroundServiceManager, BackgroundServiceManagerLocation).
 
-##2. Features Enabled by the Changes
+## 2. Features Enabled by the Changes
 
 ✅ Multiple tagged services
 + Services can now be started with a tag (e.g. "triggers", "location_default").
@@ -43,8 +43,8 @@ This led to extensive modifications across:
 + Services now create per-tag notification channels and IDs, avoiding collision.
 + Both services can display foreground notifications simultaneously.
 
-##3. Plugin Usage Now
-###Dart-side
+## 3. Plugin Usage Now
+### Dart-side
 ```dart
 // Configure the default service (triggers)
 await FlutterBackgroundService().configure(
@@ -80,7 +80,7 @@ FlutterBackgroundService()
 
 ```
 
-###Java-side
+### Java-side
 + Plugin (FlutterBackgroundServicePlugin.java)
     + Tracks runningServices (tag → Intent).
     + Tracks pipesByTag (tag → Pipe).
@@ -93,7 +93,7 @@ FlutterBackgroundService()
     + Creates/attaches a pipe for the tag.
     + Starts a dedicated Dart isolate with args [backgroundHandle, tag].
 
-##4. What Works ✅
+## 4. What Works ✅
 + Multiple services (default, location) running side by side.
 + Bidirectional communication:
     + UI ↔ Service
@@ -104,7 +104,7 @@ FlutterBackgroundService()
 + Auto-restart with START_REDELIVER_INTENT.
 
 
-##5. Limitations ⚠️
+## 5. Limitations ⚠️
 
 + Only one instance per service class (BackgroundService and BackgroundServiceLocation) can run.
     + You cannot yet run two independent location services with different tags.
@@ -118,7 +118,7 @@ FlutterBackgroundService()
 + Boot behavior:
     + If autoStartOnBoot=true, services will restart, but with the last_tag only.
 
-##6. Next Steps → Towards Multi-Service Scalability
+## 6. Next Steps → Towards Multi-Service Scalability
 
 To fully support N background services, even multiple of the same type:
 1. Split per-tag services into separate Service instances
@@ -136,7 +136,7 @@ To fully support N background services, even multiple of the same type:
     + Right now, iOS is wired but much simpler (only foreground + background hooks).
     + Multi-service parity on iOS would need a rethink (limited by Apple’s constraints).
 
-##7. History Recap (Condensed)
+## 7. History Recap (Condensed)
 + Initially: only one isolate with default tag.
 + Problem: could not run triggers + location in parallel.
 + Added: pipesByTag for multi-tag IPC.
@@ -146,5 +146,5 @@ To fully support N background services, even multiple of the same type:
 + Adjusted: per-tag notification channels and IDs.
 + Now: two services (triggers + location_default) work in parallel, with UI ↔ Service ↔ Service communication.
 
-##📌 Summary:
+## 📌 Summary:
 You now have a multi-service, tag-aware background service plugin that can run at least two parallel services reliably. Next step is to scale beyond one instance per service class, which means refactoring static state and service instantiation.

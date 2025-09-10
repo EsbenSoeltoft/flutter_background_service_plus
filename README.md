@@ -172,7 +172,7 @@ Future<void> configureBackgroundServiceLocation() async {
 }
 ```
 
-###2. Start a service
+### 2. Start a service
 
 ```dart
 void startBackgroundService({
@@ -213,7 +213,7 @@ void startBackgroundServiceLocation({
 > * THE TYPES YOU PUT IN foregroundServiceTypes, MUST BE DECLARED IN MANIFEST
 
 
-###3. Stop a service
+### 3. Stop a service
 ```dart
 @pragma('vm:entry-point')
 void stopBackgroundService() {
@@ -222,7 +222,7 @@ void stopBackgroundService() {
 }
 ```
 
-###4. Communicate with services
+### 4. Communicate with services
 
 UI → Service
 ```dart
@@ -245,7 +245,7 @@ _service.invoke('sendData', {
 
 
 
-###5. Using custom notification for Foreground Service
+### 5. Using custom notification for Foreground Service
 You can make your own custom notification for foreground service. It can give you more power to make notifications more attractive to users, for example adding progressbars, buttons, actions, etc. The example below is using [flutter_local_notifications](https://pub.dev/packages/flutter_local_notifications) plugin, but you can use any other notification plugin. You can follow how to make it below:
 
 - Notification Channel
@@ -348,12 +348,12 @@ Very useful to fetch realtime data from a server and push notifications.
 
 
 
-##🔄 Flow Diagram
+## 🔄 Flow Diagram
 
 
 
 
-##⚠️ Limitations
+## ⚠️ Limitations
 
 Services are 1 per class (BackgroundService and BackgroundServiceLocation).
 You cannot yet spin up 5 location services simultaneously — tags separate isolate logic, not service classes.
@@ -364,7 +364,7 @@ START_REDELIVER_INTENT means if Android restarts the service, the last Intent (w
 But if no intent was ever delivered, it falls back to the saved last_tag.
 
 
-##🛠 Next Steps
+## 🛠 Next Steps
 
 Expand to N background services by allowing multiple service classes or dynamic service instantiation.
 
@@ -375,7 +375,7 @@ Expose a Flutter-side API for enumerating all active tags at runtime.
 Add test harnesses for multiple isolates running in parallel.
 
 
-##📜 License
+## 📜 License
 
 MIT
 
