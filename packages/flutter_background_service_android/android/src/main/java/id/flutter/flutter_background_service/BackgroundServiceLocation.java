@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import android.content.SharedPreferences;
 
 import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
@@ -65,6 +66,10 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
     private String currentTag = "location_default";
 
     public static final Set<String> ACTIVE_TAGS = Collections.synchronizedSet(new HashSet<>());
+
+    // Choose a single, stable prefs file shared across processes.
+    private static final String PREFS = "bgsvc";
+
 
     synchronized public static PowerManager.WakeLock getLock(Context context) {
         if (lockStatic == null) {
@@ -254,59 +259,88 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Fast path: if engine is already running, just refresh notification.
+        Log.w(TAG, "onStartCommand called with intent=" + intent + " flags=" + flags + " startId=" + startId);
         if (this.isRunning.get()) {
             if (this.config != null) updateNotificationInfo();
             return START_REDELIVER_INTENT;
         }
 
-        // Tag from intent or shared prefs  
+        // 1) Resolve tag (intent → prefs → fail)
+        final String lastTagKey = getClass().getName() + ":last_tag";
+        final String registryKey = getClass().getName() + ":registry";
+
+        SharedPreferences sp = getSharedPreferences(prefsFile, MODE_PRIVATE);
+
         String tagFromIntent = (intent != null && intent.hasExtra("tag"))
-                    ? intent.getStringExtra("tag")
-                    : null;
+            ? intent.getStringExtra("tag") : null;
 
-        if (tagFromIntent == null || tagFromIntent.isEmpty()) {
-            tagFromIntent = getSharedPreferences("bgsvc", MODE_PRIVATE)
-                    .getString(getClass().getName() + ":last_tag", "location_default");
+        String tagFromPrefs = sp.getString(lastTagKey, null);
+
+        // Read registry set
+        Set<String> registry = sp.getStringSet(registryKey, Collections.emptySet());
+
+        // Accept Intent tag only if it’s non-empty AND registered.
+        boolean validIntentTag = tagFromIntent != null
+            && !tagFromIntent.isEmpty()
+            && registry.contains(tagFromIntent);
+
+        String resolvedTag = validIntentTag
+            ? tagFromIntent
+            : (tagFromPrefs != null && !tagFromPrefs.isEmpty() ? tagFromPrefs : null);
+
+        Log.w(TAG, "onStartCommand: intentTag=" + tagFromIntent + " prefsTag=" + tagFromPrefs + " resolvedTag=" + resolvedTag);
+
+        if (resolvedTag == null) {
+            // Nothing persisted yet → don’t spin up a “default” isolate; wait for a real start.
+            Log.w(TAG, "No tag in Intent and no last_tag in prefs; deferring start.");
+            return START_REDELIVER_INTENT;
         }
-        this.currentTag = (tagFromIntent == null || tagFromIntent.isEmpty()) ? "location_default" : tagFromIntent;
 
-        // Register this tag as active
-        ACTIVE_TAGS.add(currentTag); 
+        this.currentTag = resolvedTag;
 
-        // 2) Register listener on the tag-specific pipe
-        Pipe myPipe = FlutterBackgroundServicePlugin.getOrCreatePipeForTag(currentTag);
-        myPipe.addListener(listener);  
+        // 2) Persist immediately (commit, not apply) so re-deliveries can rehydrate reliably
+        getSharedPreferences(prefsFile, MODE_PRIVATE)
+            .edit().putString(lastTagKey, this.currentTag).commit();
 
-        // Tag-scoped config
+        // 3) Register ACTIVE_TAG + pipe listener before engine boot
+        ACTIVE_TAGS.add(this.currentTag);
+        Pipe myPipe = FlutterBackgroundServicePlugin.getOrCreatePipeForTag(this.currentTag);
+        myPipe.addListener(listener);
+
+        // 4) Tag-scoped config & notification/channel setup
         this.config = new Config(this, this.currentTag);
         this.config.setManuallyStopped(false);
 
-        // Load notification settings from this tag’s config
         String storedChannelId = this.config.getNotificationChannelId();
-        if (storedChannelId == null || storedChannelId.trim().isEmpty()) {
-            this.notificationChannelId = "FOREGROUND_" + this.currentTag;
+        this.notificationChannelId = (storedChannelId == null || storedChannelId.trim().isEmpty())
+            ? "FOREGROUND_" + this.currentTag
+            : storedChannelId;
+
+        if (SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null && nm.getNotificationChannel(this.notificationChannelId) == null) {
             createNotificationChannel();
-        } else {
-            this.notificationChannelId = storedChannelId;
+            }
         }
 
         this.notificationTitle = this.config.getInitialNotificationTitle();
         this.notificationContent = this.config.getInitialNotificationContent();
         this.notificationId = this.config.getForegroundNotificationId();
         if (this.notificationId <= 0) {
-            this.notificationId = 1000 + Math.abs(this.currentTag.hashCode() % 800000); // sane fallback
+            this.notificationId = 1000 + Math.abs(this.currentTag.hashCode() % 800000);
         }
         this.configForegroundTypes = this.config.getForegroundServiceTypes();
-        
+
         if (this.config.isForeground()) {
-            updateNotificationInfo();    // will call startForeground(...)
-        } else if (BuildConfig.DEBUG) {
-            // NOT foreground mode – don’t try to show a notification or call startForeground
+            updateNotificationInfo(); // promotes to foreground within the 5s window
+        } else {
             Log.i(TAG, "Starting in background mode (no foreground notification).");
         }
 
+        // 5) Watchdog + boot the engine with the **resolvedTag**
         WatchdogReceiver.enqueue(this);
-        runService(this.currentTag); // pass tag down so Dart entrypoint also knows it
+        runService(this.currentTag);  // passes [handle, tag] to Dart (see file)
 
         return START_REDELIVER_INTENT;
     }

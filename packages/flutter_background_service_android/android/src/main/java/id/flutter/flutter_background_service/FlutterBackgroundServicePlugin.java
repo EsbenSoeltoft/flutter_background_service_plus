@@ -150,6 +150,8 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 context.startService(intent);
             }
             Log.i(TAG, "Started service for tag=" + tag + " type=" + serviceType);
+            Log.i("BackgroundServicePlugin", "Starting service class="+ serviceClass.getSimpleName() + " tagExtra=" + tag);
+
         } catch (Exception e) {
             Log.e(TAG, "Failed to start service for tag=" + tag + ": " + e.getMessage(), e);
             synchronized (runningServices) {

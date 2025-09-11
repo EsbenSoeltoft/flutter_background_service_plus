@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_background_service_platform_interface/flutter_background_service_platform_interface.dart';
+import 'dart:developer';
 
 bool _isMainIsolate = true;
 
@@ -14,13 +15,16 @@ Future<void> entrypoint(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   _isMainIsolate = false;
 
-  print('Starting background service with args=$args');
+  print(
+      'BackgroundServiceManager: Starting background service with args=$args');
+  log('BackgroundServiceManager: Starting background service with args=$args');
 
   // args[0] = background handle; args[1] = tag (from Java)
   final handle = int.parse(args[0]);
   final tag = args.length > 1 ? args[1] : 'default';
 
-  print('Starting background service with tag=$tag');
+  print('BackgroundServiceManager: Starting background service with tag=$tag');
+  log('BackgroundServiceManager: Starting background service with tag=$tag');
 
   final service = AndroidServiceInstance._(tag);
 
