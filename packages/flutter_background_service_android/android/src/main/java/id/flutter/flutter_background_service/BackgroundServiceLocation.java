@@ -42,6 +42,8 @@ import io.flutter.plugin.common.MethodChannel;
 
 public class BackgroundServiceLocation extends Service implements MethodChannel.MethodCallHandler {
     private static final String TAG = "BackgroundServiceLocation";
+        // Choose a single, stable prefs file shared across processes.
+    private static final String PREFS = "bgsvc";
     private static final String LOCK_NAME = BackgroundServiceLocation.class.getName() + ".Lock";
 
     public static volatile WakeLock lockStatic = null; // static
@@ -66,9 +68,6 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
     private String currentTag = "location_default";
 
     public static final Set<String> ACTIVE_TAGS = Collections.synchronizedSet(new HashSet<>());
-
-    // Choose a single, stable prefs file shared across processes.
-    private static final String PREFS = "bgsvc";
 
 
     synchronized public static PowerManager.WakeLock getLock(Context context) {
@@ -270,7 +269,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         final String lastTagKey = getClass().getName() + ":last_tag";
         final String registryKey = getClass().getName() + ":registry";
 
-        SharedPreferences sp = getSharedPreferences(prefsFile, MODE_PRIVATE);
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
 
         String tagFromIntent = (intent != null && intent.hasExtra("tag"))
             ? intent.getStringExtra("tag") : null;
@@ -300,7 +299,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         this.currentTag = resolvedTag;
 
         // 2) Persist immediately (commit, not apply) so re-deliveries can rehydrate reliably
-        getSharedPreferences(prefsFile, MODE_PRIVATE)
+        getSharedPreferences(PREFS, MODE_PRIVATE)
             .edit().putString(lastTagKey, this.currentTag).commit();
 
         // 3) Register ACTIVE_TAG + pipe listener before engine boot

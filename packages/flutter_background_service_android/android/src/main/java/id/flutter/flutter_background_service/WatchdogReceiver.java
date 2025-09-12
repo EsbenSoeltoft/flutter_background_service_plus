@@ -1,98 +1,149 @@
 package id.flutter.flutter_background_service;
 
-import static android.content.Context.ALARM_SERVICE;
-import static android.os.Build.VERSION.SDK_INT;
-
-import android.Manifest;
-import android.app.ActivityManager;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.content.SharedPreferences;
 import android.os.Build;
+import android.util.Log;
 
 import androidx.core.app.AlarmManagerCompat;
 import androidx.core.content.ContextCompat;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
+import static android.content.Context.ALARM_SERVICE;
+
 public class WatchdogReceiver extends BroadcastReceiver {
+    private static final String TAG = "WatchdogReceiver";
+    private static final String PREFS = "bgsvc";
     private static final int QUEUE_REQUEST_ID = 111;
     private static final String ACTION_RESPAWN = "id.flutter.background_service.RESPAWN";
 
+    /** Default to 5s, adjust if you expose a knob. */
+    private static final long DEFAULT_INTERVAL_MS = 5000L;
+
     public static void enqueue(Context context) {
-        enqueue(context, 5000);
+        enqueue(context, DEFAULT_INTERVAL_MS);
     }
 
-    public static void enqueue(Context context, int millis) {
-        Intent intent = new Intent(context, WatchdogReceiver.class);
-        intent.setAction(ACTION_RESPAWN);
-        AlarmManager manager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+    public static void enqueue(Context context, long millis) {
+        final AlarmManager manager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+        if (manager == null) {
+            Log.w(TAG, "AlarmManager is null; cannot schedule watchdog.");
+            return;
+        }
+
+        final Intent intent = new Intent(context, WatchdogReceiver.class).setAction(ACTION_RESPAWN);
 
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            flags |= PendingIntent.FLAG_MUTABLE;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // We never mutate the intent after creation → immutable is safer.
+            flags |= PendingIntent.FLAG_IMMUTABLE;
         }
 
-        PendingIntent pIntent = PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);
+        final PendingIntent pIntent =
+                PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);
 
-        // On some vendored Android 12 (SDK 32) SCHEDULE_EXACT_ALARM permission might not be granted
-        // by default.
-        boolean isScheduleExactAlarmsGranted = true;
+        final long triggerAtMillis = System.currentTimeMillis() + Math.max(0, millis);
+
+        boolean canUseExact = true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            isScheduleExactAlarmsGranted = manager.canScheduleExactAlarms();
+            canUseExact = manager.canScheduleExactAlarms();
         }
 
-        // Check is background service every 5 seconds
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU || !isScheduleExactAlarmsGranted) {
-          // Android 13 (SDK 33) requires apps to declare android.permission.SCHEDULE_EXACT_ALARM to use setExact
-          // Android 14 (SDK 34) takes this further and requires that apps explicitly ask for user permission before
-          //   using setExact.
-          // On these versions, use setAndAllowWhileIdle instead - it is _almost_ the same, but allows the OS to delay
-          // the alarm a bit to minimize device wake-ups
-          AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + millis, pIntent);
-        } else {
-          AlarmManagerCompat.setExact(manager, AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + millis, pIntent);
+        try {
+            if (canUseExact) {
+                // Prefer exact + allow while idle when possible (API 23+).
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+                } else {
+                    AlarmManagerCompat.setExact(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+                }
+            } else {
+                // Fall back to inexact but allowed while idle.
+                AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+            }
+        } catch (SecurityException se) {
+            // Happens on S+ if app lacks SCHEDULE_EXACT_ALARM and we attempted exact;
+            // retry with allow-while-idle inexact.
+            Log.w(TAG, "Exact alarm denied; retrying with allowWhileIdle", se);
+            AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
         }
     }
 
     public static void remove(Context context) {
-        Intent intent = new Intent(context, WatchdogReceiver.class);
-        intent.setAction(ACTION_RESPAWN);
+        final AlarmManager alarmManager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+        if (alarmManager == null) return;
 
-        int flags = PendingIntent.FLAG_CANCEL_CURRENT;
-        if (SDK_INT >= Build.VERSION_CODES.S) {
-            flags |= PendingIntent.FLAG_MUTABLE;
+        final Intent intent = new Intent(context, WatchdogReceiver.class).setAction(ACTION_RESPAWN);
+
+        int flags = PendingIntent.FLAG_NO_CREATE;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
         }
 
-        PendingIntent pi = PendingIntent.getBroadcast(context, WatchdogReceiver.QUEUE_REQUEST_ID, intent, flags);
-        AlarmManager alarmManager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
-        alarmManager.cancel(pi);
+        final PendingIntent pi =
+                PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);
+        if (pi != null) {
+            alarmManager.cancel(pi);
+            pi.cancel();
+        }
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent.getAction().equals(ACTION_RESPAWN)) {
-            final Config config = new Config(context);
-            boolean isRunning = false;
+        Log.i(TAG, "onReceive watchdog tick; intent=" + intent);
 
-            ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-            for (ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
-                if (BackgroundService.class.getName().equals(service.service.getClassName())) {
-                    isRunning = true;
-                }
+        startRegisteredTagsForService(context, BackgroundService.class, "default");
+        startRegisteredTagsForService(context, BackgroundServiceLocation.class, "location");
+
+        // Keep ticking even if the Service forgets to enqueue again.
+        enqueue(context, DEFAULT_INTERVAL_MS);
+    }
+
+    private void startRegisteredTagsForService(Context context, Class<?> svcClass, String serviceType) {
+        final SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        final String className = svcClass.getName();
+        final String registryKey = className + ":registry";
+
+        Set<String> reg = sp.getStringSet(registryKey, Collections.<String>emptySet());
+        final Set<String> registry = (reg == null) ? Collections.<String>emptySet() : new HashSet<>(reg);
+
+        if (registry.isEmpty()) {
+            Log.i(TAG, "No tags registered for " + className + " (registry empty).");
+            return;
+        }
+
+        for (String tag : registry) {
+            if (tag == null || tag.isEmpty()) continue;
+
+            final Config cfg = new Config(context, tag);
+
+            // Respect manual stop: do not resurrect this tag.
+            if (cfg.isManuallyStopped()) {
+                Log.i(TAG, "Watchdog skip " + className + " tag=" + tag + " (manually stopped).");
+                continue;
             }
 
-            if (!config.isManuallyStopped() && !isRunning) {
-                try {
-                    if (config.isForeground()) {
-                        ContextCompat.startForegroundService(context, new Intent(context, id.flutter.flutter_background_service.BackgroundService.class));
-                    } else {
-                        context.getApplicationContext().startService(new Intent(context, id.flutter.flutter_background_service.BackgroundService.class));
-                    }}
-                catch (Exception e){
-                    e.printStackTrace();
+            final Intent start = new Intent(context, svcClass)
+                    .putExtra("tag", tag)     // valid tag from registry only; never "default"
+                    .putExtra("type", serviceType);
+
+            try {
+                if (cfg.isForeground()) {
+                    Log.i(TAG, "Watchdog starting FGS " + className + " tag=" + tag + " type=" + serviceType);
+                    ContextCompat.startForegroundService(context, start);
+                } else {
+                    Log.i(TAG, "Watchdog starting BG " + className + " tag=" + tag + " type=" + serviceType);
+                    context.startService(start);
                 }
+            } catch (Throwable t) {
+                Log.w(TAG, "Watchdog failed to start " + className + " tag=" + tag + " type=" + serviceType + " : " + t);
             }
         }
     }

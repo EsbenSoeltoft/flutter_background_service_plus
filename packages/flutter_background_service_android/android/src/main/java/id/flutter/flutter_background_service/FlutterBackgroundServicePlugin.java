@@ -218,7 +218,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             if (mainPipe.hasListener()) {
                 mainPipe.invoke(msg);
             }
-            context.getSharedPreferences("fbsp", Context.MODE_PRIVATE)
+            context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
                 .edit()
                 .remove(BackgroundService.class.getName() + ":last_tag")
                 .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
