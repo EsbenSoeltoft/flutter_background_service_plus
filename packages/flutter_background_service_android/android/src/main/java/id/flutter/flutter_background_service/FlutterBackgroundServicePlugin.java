@@ -38,6 +38,7 @@ import java.util.Collections;
  */
 public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler {
     private static final String TAG = "BackgroundServicePlugin";
+    private static final String PREFS = "bgsvc";
     private Handler mainHandler;
     
     // Map of tag -> Intent
@@ -128,7 +129,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
                 : BackgroundService.class;
 
         // Persist last_tag (fallback if Intent extras are lost)
-        context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(serviceClass.getName() + ":last_tag", tag)
             .apply();
@@ -157,7 +158,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             synchronized (runningServices) {
                 runningServices.remove(tag);
             }
-            context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .remove(serviceClass.getName() + ":last_tag")
                 .apply();
@@ -188,7 +189,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
         removeTagFromPluginState(tag);
 
         // clear both last_tag keys (harmless if absent)
-        SharedPreferences sp = context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE);
+        SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         sp.edit()
         .remove(BackgroundService.class.getName() + ":last_tag")
         .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
@@ -218,7 +219,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
             if (mainPipe.hasListener()) {
                 mainPipe.invoke(msg);
             }
-            context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .remove(BackgroundService.class.getName() + ":last_tag")
                 .remove(BackgroundServiceLocation.class.getName() + ":last_tag")
@@ -318,7 +319,7 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
 
                 // 3) Persist registry + last_tag (per service class)
                 android.content.SharedPreferences sp =
-                        context.getSharedPreferences("bgsvc", Context.MODE_PRIVATE);
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
 
                 final String registryKey = serviceClass.getName() + ":registry";
                 java.util.Set<String> tags =
