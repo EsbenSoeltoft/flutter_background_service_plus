@@ -15,16 +15,9 @@ Future<void> entrypoint(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   _isMainIsolate = false;
 
-  print(
-      'BackgroundServiceManager: Starting background service with args=$args');
-  log('BackgroundServiceManager: Starting background service with args=$args');
-
   // args[0] = background handle; args[1] = tag (from Java)
   final handle = int.parse(args[0]);
   final tag = args.length > 1 ? args[1] : 'default';
-
-  print('BackgroundServiceManager: Starting background service with tag=$tag');
-  log('BackgroundServiceManager: Starting background service with tag=$tag');
 
   final service = AndroidServiceInstance._(tag);
 

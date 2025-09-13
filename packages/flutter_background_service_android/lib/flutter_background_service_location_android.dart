@@ -15,8 +15,6 @@ Future<void> entrypointLocation(List<String> args) async {
 
   final service = AndroidServiceInstance._(tag);
 
-  print('Starting background service location with tag=$tag');
-
   try {
     service.invoke(
         'ready', {'tag': tag, 'ts': DateTime.now().millisecondsSinceEpoch});

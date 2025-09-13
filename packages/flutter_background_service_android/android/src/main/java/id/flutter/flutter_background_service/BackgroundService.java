@@ -172,9 +172,10 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
             return; 
         }
 
-        // Ensure channel id exists and the channel is created (hardening)
-        if (this.notificationChannelId == null || this.notificationChannelId.trim().isEmpty()) {
-            this.notificationChannelId = "FOREGROUND_" + this.currentTag;
+        // Final guard + sanitize again (defensive)
+        if (this.notificationChannelId == null || this.notificationChannelId.trim().isEmpty()
+            || "null".equalsIgnoreCase(this.notificationChannelId.trim())) {
+            this.notificationChannelId = "FOREGROUND_" + (this.currentTag != null ? this.currentTag : "default");
         }
 
         if (SDK_INT >= Build.VERSION_CODES.O) {
@@ -227,7 +228,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
 
         int flags = PendingIntent.FLAG_CANCEL_CURRENT;
         if (SDK_INT >= Build.VERSION_CODES.S) {
-            flags |= PendingIntent.FLAG_MUTABLE;
+            flags |= PendingIntent.FLAG_IMMUTABLE;
         }
 
         int requestCode = 11 + Math.abs(this.currentTag.hashCode() % 1000);
@@ -262,7 +263,6 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Fast path: if engine is already running, just refresh notification.
-        Log.w(TAG, "onStartCommand called with intent=" + intent + " flags=" + flags + " startId=" + startId);
         if (this.isRunning.get()) {
             if (this.config != null) updateNotificationInfo();
             return START_REDELIVER_INTENT;
@@ -291,11 +291,8 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
             ? tagFromIntent
             : (tagFromPrefs != null && !tagFromPrefs.isEmpty() ? tagFromPrefs : null);
 
-        Log.w(TAG, "onStartCommand: intentTag=" + tagFromIntent + " prefsTag=" + tagFromPrefs + " resolvedTag=" + resolvedTag);
-
         if (resolvedTag == null) {
             // Nothing persisted yet → don’t spin up a “default” isolate; wait for a real start.
-            Log.w(TAG, "No tag in Intent and no last_tag in prefs; deferring start.");
             return START_REDELIVER_INTENT;
         }
 
@@ -315,14 +312,20 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         this.config.setManuallyStopped(false);
 
         String storedChannelId = this.config.getNotificationChannelId();
+        // Some prefs/JSON paths can store the literal "null" string — treat it as empty
+        if (storedChannelId != null && "null".equalsIgnoreCase(storedChannelId.trim())) {
+            storedChannelId = null;
+        }
+
         this.notificationChannelId = (storedChannelId == null || storedChannelId.trim().isEmpty())
-            ? "FOREGROUND_" + this.currentTag
+            ? ("FOREGROUND_" + this.currentTag)
             : storedChannelId;
 
+        // Ensure channel exists on O+
         if (SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationManager nm = getSystemService(NotificationManager.class);
+            final NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null && nm.getNotificationChannel(this.notificationChannelId) == null) {
-            createNotificationChannel();
+                createNotificationChannel(); // uses this.notificationChannelId
             }
         }
 

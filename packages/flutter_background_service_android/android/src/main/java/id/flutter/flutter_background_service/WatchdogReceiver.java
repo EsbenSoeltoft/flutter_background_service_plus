@@ -97,8 +97,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.i(TAG, "onReceive watchdog tick; intent=" + intent);
-
         startRegisteredTagsForService(context, BackgroundService.class, "default");
         startRegisteredTagsForService(context, BackgroundServiceLocation.class, "location");
 
@@ -126,7 +124,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
             // Respect manual stop: do not resurrect this tag.
             if (cfg.isManuallyStopped()) {
-                Log.i(TAG, "Watchdog skip " + className + " tag=" + tag + " (manually stopped).");
+                //Log.i(TAG, "Watchdog skip " + className + " tag=" + tag + " (manually stopped).");
                 continue;
             }
 
@@ -136,10 +134,10 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
             try {
                 if (cfg.isForeground()) {
-                    Log.i(TAG, "Watchdog starting FGS " + className + " tag=" + tag + " type=" + serviceType);
+                    //Log.i(TAG, "Watchdog starting FGS " + className + " tag=" + tag + " type=" + serviceType);
                     ContextCompat.startForegroundService(context, start);
                 } else {
-                    Log.i(TAG, "Watchdog starting BG " + className + " tag=" + tag + " type=" + serviceType);
+                    //Log.i(TAG, "Watchdog starting BG " + className + " tag=" + tag + " type=" + serviceType);
                     context.startService(start);
                 }
             } catch (Throwable t) {
