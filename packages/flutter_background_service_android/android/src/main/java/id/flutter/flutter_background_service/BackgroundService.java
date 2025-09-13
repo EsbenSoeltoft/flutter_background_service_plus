@@ -213,9 +213,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
         if (iconId == 0) {
             iconId = android.R.drawable.ic_dialog_alert; // safe fallback
             Log.w(TAG, "Fallback to system icon because ic_bg_service_small was not found.");
-        } else if( BuildConfig.DEBUG) {
-            Log.i(TAG, "Using notification icon 'ic_bg_service_small' with id=" + iconId);
-        }
+        } 
         // --- END ICON CHECK ---
 
         String packageName = getApplicationContext().getPackageName();
@@ -247,12 +245,6 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
                 this.foregroundTypes = this.configForegroundTypes.split(",");
             }
             Integer serviceType = ForegroundTypeMapper.getForegroundServiceType(this.foregroundTypes);
-            if (BuildConfig.DEBUG) {
-                Log.i(TAG, "tag=" + this.currentTag
-                    + " channelId=" + this.notificationChannelId
-                    + " serviceTypesCsv=" + this.configForegroundTypes
-                    + " computedMask=" + serviceType);
-            }
 
             ServiceCompat.startForeground(this, this.notificationId, mBuilder.build(), serviceType);
         } catch (SecurityException e) {
