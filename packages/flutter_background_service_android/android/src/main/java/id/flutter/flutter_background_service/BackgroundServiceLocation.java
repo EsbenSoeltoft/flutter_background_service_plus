@@ -2,7 +2,6 @@ package id.flutter.flutter_background_service;
 
 import id.flutter.flutter_background_service.BuildConfig;
 import static android.os.Build.VERSION.SDK_INT;
-import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -30,6 +29,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import android.content.SharedPreferences;
 
 import io.flutter.FlutterInjector;
@@ -42,9 +42,13 @@ import io.flutter.plugin.common.MethodChannel;
 
 public class BackgroundServiceLocation extends Service implements MethodChannel.MethodCallHandler {
     private static final String TAG = "BackgroundServiceLocation";
-        // Choose a single, stable prefs file shared across processes.
     private static final String PREFS = "bgsvc";
     private static final String LOCK_NAME = BackgroundServiceLocation.class.getName() + ".Lock";
+    private static final long WAKELOCK_TIMEOUT_MS = 60_000L;
+    /** Debug-only logical count of acquisitions we perform in this class. */
+    private static final AtomicInteger WAKELOCK_HELD_COUNT = new AtomicInteger(0);
+    /** Guard so we only release the bootstrap acquire once (ready or finally/destroy). */
+    private final AtomicBoolean bootstrapLockReleased = new AtomicBoolean(false);
 
     public static volatile WakeLock lockStatic = null; // static
 
@@ -69,6 +73,23 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
 
     public static final Set<String> ACTIVE_TAGS = Collections.synchronizedSet(new HashSet<>());
 
+    /** Release the bootstrap wakelock exactly once, with a reason for logs. */
+    private void releaseBootstrapWakeLock(String reason) {
+        try {
+            if (!bootstrapLockReleased.compareAndSet(false, true)) {
+                return; // already released
+            }
+            if (lockStatic != null && lockStatic.isHeld()) {
+                lockStatic.release();
+                int c = WAKELOCK_HELD_COUNT.decrementAndGet();
+                Log.i(TAG, "WakeLock released [" + reason + "], heldCount=" + c);
+            } else {
+                Log.d(TAG, "WakeLock not held at release [" + reason + "]");
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "WakeLock release failed [" + reason + "]", t);
+        }
+    }
 
     synchronized public static PowerManager.WakeLock getLock(Context context) {
         if (lockStatic == null) {
@@ -114,14 +135,16 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         }
 
         // --- RELEASE WAKELOCK ---
-        try {
-            if (lockStatic != null && lockStatic.isHeld()) {
-                lockStatic.release();
-                Log.i(TAG, "WakeLock released in onDestroy()");
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to release WakeLock: " + e.getMessage(), e);
-        }
+        // try {
+        //     if (lockStatic != null && lockStatic.isHeld()) {
+        //         lockStatic.release();
+        //         Log.i(TAG, "WakeLock released in onDestroy()");
+        //     }
+        // } catch (Exception e) {
+        //     Log.w(TAG, "Failed to release WakeLock: " + e.getMessage(), e);
+        // }
+        // --- RELEASE WAKELOCK (guarded, once) ---
+        releaseBootstrapWakeLock("onDestroy");
         // --- END RELEASE WAKELOCK ---
         
         try {
@@ -221,9 +244,8 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
             i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 .setData(android.net.Uri.parse("package:" + packageName));
         }   
-
         int flags = PendingIntent.FLAG_CANCEL_CURRENT;
-        if (SDK_INT >= Build.VERSION_CODES.S) {
+        if (SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
         }
 
@@ -340,7 +362,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         return START_REDELIVER_INTENT;
     }
 
-    @SuppressLint("WakelockTimeout")
+
     private void runService(String tag) {
         // If we *know* we’re running, bail.
         if (this.isRunning.get()) {
@@ -356,9 +378,17 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
             return;
         }
 
-        Log.v(TAG, "Starting flutter engine for background service tag=" + tag);
-        getLock(getApplicationContext()).acquire();
 
+        Log.v(TAG, "Starting flutter engine for background LOCATION service tag=" + tag);
+        final WakeLock wl = getLock(getApplicationContext());
+        wl.acquire(WAKELOCK_TIMEOUT_MS);
+        // Logical count for debug; matches our single release later.
+        if (BuildConfig.DEBUG) {
+            int c = WAKELOCK_HELD_COUNT.incrementAndGet();
+            Log.d(TAG, "WakeLock acquire (timeout=" + WAKELOCK_TIMEOUT_MS + "ms), heldCount=" + c);
+        } else {
+            WAKELOCK_HELD_COUNT.incrementAndGet();
+        }
         try {
             //updateNotificationInfo();
 
@@ -395,34 +425,22 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
             this.backgroundEngine.getDartExecutor().executeDartEntrypoint(this.dartEntrypoint, args);
 
         } catch (UnsatisfiedLinkError e) {
-            //After a reboot this may happen briefly and can be ignored
+            // After a reboot this may happen briefly and can be ignored
 
             // Optional: surface a friendly message via your foreground notification
             this.notificationContent = "Error " + e.getMessage();
             try { updateNotificationInfo(); } catch (Throwable ignore) {}
 
-            // Always release the wakelock on failure
-            try {
-                if (lockStatic != null && lockStatic.isHeld()) {
-                    lockStatic.release();
-                    Log.w(TAG, "Wakelock released due to init failure (UnsatisfiedLinkError)", e);
-                }
-            } catch (Exception ignored) {}
-
-            // Rethrow so the failure isn’t hidden (lets watchdog/app handle restart)
             throw e;
 
         } catch (Throwable t) {
             // Any other failure: release and rethrow
-            try {
-                if (lockStatic != null && lockStatic.isHeld()) {
-                    lockStatic.release();
-                    Log.w(TAG, "Wakelock released due to init failure", t);
-                }
-            } catch (Exception ignored) {}
 
             throw t;
-        } 
+        }  finally {
+            // Fallback release if 'ready' didn't arrive.
+            releaseBootstrapWakeLock("bootstrap finally");
+        }
     }
 
     public void receiveData(JSONObject data) {
@@ -455,6 +473,14 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
         String method = call.method;
 
         try {
+            // Early 'ready' handshake: release bootstrap wakelock ASAP.
+            if (method.equalsIgnoreCase("ready")) {
+                releaseBootstrapWakeLock("ready handshake");
+                // Optionally update notification/title to "Running"
+                result.success(true);
+                return;
+            }
+
             if (method.equalsIgnoreCase("setNotificationInfo")) {
                 JSONObject arg = (JSONObject) call.arguments;
                 if (arg.has("title")) {
