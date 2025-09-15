@@ -49,30 +49,43 @@ public class WatchdogReceiver extends BroadcastReceiver {
         final PendingIntent pIntent =
                 PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);
 
-        final long triggerAtMillis = System.currentTimeMillis() + Math.max(0, millis);
-
-        boolean canUseExact = true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            canUseExact = manager.canScheduleExactAlarms();
-        }
+        final long triggerAtMillis = System.currentTimeMillis() + Math.max(0L, millis);
+        final boolean exactAllowed = canUseExactAlarms(manager);
 
         try {
-            if (canUseExact) {
-                // Prefer exact + allow while idle when possible (API 23+).
+            if (exactAllowed) {
+                // Prefer exact + allow-while-idle on API 23+; pre-23 falls back to setExact.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
                 } else {
                     AlarmManagerCompat.setExact(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
                 }
+                //Log.i(TAG, "Scheduled EXACT watchdog alarm in " + millis + " ms");
             } else {
-                // Fall back to inexact but allowed while idle.
+                // Graceful fallback; OS may defer under Doze/App Standby.
                 AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+                //Log.i(TAG, "Scheduled INEXACT watchdog alarm (no exact privilege) in " + millis + " ms");
             }
         } catch (SecurityException se) {
             // Happens on S+ if app lacks SCHEDULE_EXACT_ALARM and we attempted exact;
             // retry with allow-while-idle inexact.
-            Log.w(TAG, "Exact alarm denied; retrying with allowWhileIdle", se);
+            Log.w(TAG, "Exact alarm denied; retrying with allowWhileIdle fallback", se);
             AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+        } catch (Throwable t) {
+            Log.w(TAG, "Alarm schedule failed; attempting allowWhileIdle fallback", t);
+            AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+        }
+    }
+
+    private static boolean canUseExactAlarms(AlarmManager manager) {
+        if (manager == null) return false;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return true; // No permission gate before Android 12
+        }
+        try {
+            return manager.canScheduleExactAlarms();
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -97,11 +110,14 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        startRegisteredTagsForService(context, BackgroundService.class, "default");
-        startRegisteredTagsForService(context, BackgroundServiceLocation.class, "location");
+        if (intent != null && ACTION_RESPAWN.equals(intent.getAction())) {
+            // Try to (re)start all registered tags for both services.
+            startRegisteredTagsForService(context, BackgroundService.class, "default");
+            startRegisteredTagsForService(context, BackgroundServiceLocation.class, "location");
 
-        // Keep ticking even if the Service forgets to enqueue again.
-        enqueue(context, DEFAULT_INTERVAL_MS);
+            // Keep ticking even if a Service forgets to enqueue again.
+            enqueue(context, DEFAULT_INTERVAL_MS);
+        }
     }
 
     private void startRegisteredTagsForService(Context context, Class<?> svcClass, String serviceType) {
@@ -113,7 +129,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
         final Set<String> registry = (reg == null) ? Collections.<String>emptySet() : new HashSet<>(reg);
 
         if (registry.isEmpty()) {
-            Log.i(TAG, "No tags registered for " + className + " (registry empty).");
+            // No tags registered for this service class; nothing to do.
             return;
         }
 
@@ -124,7 +140,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
             // Respect manual stop: do not resurrect this tag.
             if (cfg.isManuallyStopped()) {
-                //Log.i(TAG, "Watchdog skip " + className + " tag=" + tag + " (manually stopped).");
                 continue;
             }
 
@@ -134,10 +149,8 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
             try {
                 if (cfg.isForeground()) {
-                    //Log.i(TAG, "Watchdog starting FGS " + className + " tag=" + tag + " type=" + serviceType);
                     ContextCompat.startForegroundService(context, start);
                 } else {
-                    //Log.i(TAG, "Watchdog starting BG " + className + " tag=" + tag + " type=" + serviceType);
                     context.startService(start);
                 }
             } catch (Throwable t) {

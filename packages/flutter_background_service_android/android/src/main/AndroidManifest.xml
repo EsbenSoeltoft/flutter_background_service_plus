@@ -1,34 +1,49 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="id.flutter.flutter_background_service">
+    package="id.flutter.flutter_background_service">
 
+    <!-- Keep plugin-scoped permissions minimal/safe -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
-
     <application>
-        <service
-            android:enabled="true"
-            android:exported="true"
-            android:name=".BackgroundService"
-            android:stopWithTask="false"
-            />
 
+        <!-- Core background service (not exported; only this app can start it) -->
+        <service
+            android:name=".BackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- Location-specific background service (not exported) -->
+        <service
+            android:name=".BackgroundServiceLocation"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <!-- Watchdog alarm receiver: explicit PendingIntent only; keep NOT exported -->
         <receiver
             android:name=".WatchdogReceiver"
             android:enabled="true"
-            android:exported="true"
-            />
+            android:exported="false"
+            android:directBootAware="true" />
 
+        <!-- Boot receiver: system implicit broadcasts → MUST be exported -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
-            android:exported="true">
-
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <!-- Normal boot (after user unlocks) -->
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- Direct-boot phase (before user unlocks) -->
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <!-- App updated/reinstalled -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <!-- Some OEMs (legacy quick boot) -->
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
