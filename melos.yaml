@@ -33,3 +33,4 @@ scripts:
 
   # Run tests across packages (if/when you add tests)
   test: melos exec -c 6 -- "flutter test"
+sdkPath: .fvm/flutter_sdk
