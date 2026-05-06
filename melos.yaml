@@ -1,5 +1,5 @@
-name: flutter_background_service
-repository: https://github.com/ekasetiawans/flutter_background_service
+name: flutter_background_service_plus
+repository: https://github.com/EsbenSoeltoft/flutter_background_service_plus
 
 packages:
   - packages/**
@@ -14,5 +14,23 @@ command:
     workspaceChangelog: true
 
 scripts:
+  # Wire all local path dependencies between packages
+  bootstrap: melos bootstrap
+
+  # Clean every package then run `flutter clean` in each
+  clean: |
+    melos clean
+    melos run postclean
+
   postclean: >
     melos exec -c 6 -- "flutter clean"
+
+  # Run analyzer across all packages
+  analyze: melos exec -c 6 -- "flutter analyze"
+
+  # Format all Dart code
+  format: melos exec -c 6 -- "dart format ."
+
+  # Run tests across packages (if/when you add tests)
+  test: melos exec -c 6 -- "flutter test"
+sdkPath: .fvm/flutter_sdk

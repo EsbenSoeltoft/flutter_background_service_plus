@@ -1,3 +1,27 @@
+## flutter_background_service_plus
+
+Updated file structure
+Folder structure
+flutter_background_service_plus
+└── packages
+    └── flutter_background_service_android
+        └── android
+            └── src
+                └── main
+                    └── java
+                        └── id
+                            └── flutter
+                                └── flutter_background_service
+                                    ├── BackgroundService.java
+                                    ├── BackgroundServiceLocation.java  <-- This file has been added
+                                    ├── FlutterBackgroundServicePlugin.java  <-- This file has been edited
+flutter_background_service_plus
+└── packages
+    └── flutter_background_service_android
+        └── lib
+            └── flutter_background_service_android.dart
+            └── flutter_background_service_location_android.dart  <-- This file has been added
+
 ## 6.3.1
 
  - **FIX**(android): add namespace to support AGP 8.0+. ([76b0c396](https://github.com/ekasetiawans/flutter_background_service/commit/76b0c3960e2e65b5be8c60a2de0b7c0565691769))

@@ -1,41 +1,57 @@
+plugins {
+  id 'com.android.library'              // let the root project decide the AGP version
+  // id 'org.jetbrains.kotlin.android'  // add if you include any Kotlin sources
+}
+
 group 'id.flutter.flutter_background_service'
 version '1.0'
 
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:7.4.2'
-    }
+// In a plugin module you usually don't need repositories here;
+// the root project (your app or example app) provides them.
+// Safe to keep if you build the module standalone, but optional.
+repositories {
+  google()
+  mavenCentral()
 }
-
-rootProject.allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 34
-
-    namespace = "id.flutter.flutter_background_service"
+    namespace "id.flutter.flutter_background_service"
+    compileSdk 34
     
     defaultConfig {
-        minSdkVersion 16
-        consumerProguardFiles 'proguard-rules.pro'
+        minSdkVersion 21
+        consumerProguardFiles 'consumer-proguard-rules.pro'
     }
 
-    lintOptions {
-        disable 'InvalidPackage'
+    // Newer style; AGP 7.4 still accepts lintOptions as well.
+    lint {
+        disable += ['InvalidPackage']
+    }
+
+    compileOptions {
+        // Keep Java 8 source/target for maximum downstream compatibility
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    buildFeatures {
+        buildConfig true
+    }
+    
+    buildTypes {
+        release {
+            // Your plugin AAR doesn’t need to be minified;
+            // the important part is exporting consumer rules to the app.
+            minifyEnabled false
+        }
+        debug {
+            minifyEnabled false
+        }
     }
 }
 
 dependencies {
-  implementation "androidx.core:core:1.12.0"
+    implementation "androidx.core:core:1.12.0"
+    // If you switch to Java 11+/use newer APIs, also add:
+    // coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
 }
