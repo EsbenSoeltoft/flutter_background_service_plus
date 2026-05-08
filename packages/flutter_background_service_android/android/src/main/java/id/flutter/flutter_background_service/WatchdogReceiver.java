@@ -9,14 +9,11 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
-import androidx.core.app.AlarmManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-
-import static android.content.Context.ALARM_SERVICE;
 
 public class WatchdogReceiver extends BroadcastReceiver {
     private static final String TAG = "WatchdogReceiver";
@@ -32,19 +29,14 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     public static void enqueue(Context context, long millis) {
-        final AlarmManager manager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+        final AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (manager == null) {
             Log.w(TAG, "AlarmManager is null; cannot schedule watchdog.");
             return;
         }
 
         final Intent intent = new Intent(context, WatchdogReceiver.class).setAction(ACTION_RESPAWN);
-
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // We never mutate the intent after creation → immutable is safer.
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
 
         final PendingIntent pIntent =
                 PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);
@@ -54,26 +46,16 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         try {
             if (exactAllowed) {
-                // Prefer exact + allow-while-idle on API 23+; pre-23 falls back to setExact.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
-                } else {
-                    AlarmManagerCompat.setExact(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
-                }
-                //Log.i(TAG, "Scheduled EXACT watchdog alarm in " + millis + " ms");
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
             } else {
-                // Graceful fallback; OS may defer under Doze/App Standby.
-                AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
-                //Log.i(TAG, "Scheduled INEXACT watchdog alarm (no exact privilege) in " + millis + " ms");
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
             }
         } catch (SecurityException se) {
-            // Happens on S+ if app lacks SCHEDULE_EXACT_ALARM and we attempted exact;
-            // retry with allow-while-idle inexact.
             Log.w(TAG, "Exact alarm denied; retrying with allowWhileIdle fallback", se);
-            AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
         } catch (Throwable t) {
             Log.w(TAG, "Alarm schedule failed; attempting allowWhileIdle fallback", t);
-            AlarmManagerCompat.setAndAllowWhileIdle(manager, AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
+            manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pIntent);
         }
     }
 
@@ -90,15 +72,11 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     public static void remove(Context context) {
-        final AlarmManager alarmManager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+        final AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (alarmManager == null) return;
 
         final Intent intent = new Intent(context, WatchdogReceiver.class).setAction(ACTION_RESPAWN);
-
-        int flags = PendingIntent.FLAG_NO_CREATE;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
+        int flags = PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE;
 
         final PendingIntent pi =
                 PendingIntent.getBroadcast(context, QUEUE_REQUEST_ID, intent, flags);

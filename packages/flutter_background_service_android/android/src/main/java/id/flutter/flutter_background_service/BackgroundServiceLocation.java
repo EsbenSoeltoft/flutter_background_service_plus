@@ -41,7 +41,7 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
 public class BackgroundServiceLocation extends Service implements MethodChannel.MethodCallHandler {
-    private static final String TAG = "BackgroundServiceLocation";
+    private static final String TAG = "BackgroundServiceLoc";
     private static final String PREFS = "bgsvc";
     private static final String LOCK_NAME = BackgroundServiceLocation.class.getName() + ".Lock";
     private static final long WAKELOCK_TIMEOUT_MS = 60_000L;
@@ -125,7 +125,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
             this.config.setManuallyStopped(true);
         }
 
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         this.isRunning.set(false);
 
         if (this.backgroundEngine != null) {
@@ -312,7 +312,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
 
         // 2) Persist immediately (commit, not apply) so re-deliveries can rehydrate reliably
         getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit().putString(lastTagKey, this.currentTag).commit();
+            .edit().putString(lastTagKey, this.currentTag).apply();
 
         // 3) Register ACTIVE_TAG + pipe listener before engine boot
         ACTIVE_TAGS.add(this.currentTag);
@@ -508,7 +508,7 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
                     updateNotificationInfo();
                     this.backgroundEngine.getServiceControlSurface().onMoveToForeground();
                 } else {
-                    stopForeground(true);
+                    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
                     this.backgroundEngine.getServiceControlSurface().onMoveToBackground();
                 }
 

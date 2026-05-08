@@ -129,7 +129,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
             this.config.setManuallyStopped(true);
         }
 
-        stopForeground(true);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         this.isRunning.set(false);
 
         if (this.backgroundEngine != null) {
@@ -316,7 +316,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
 
         // 2) Persist immediately (commit, not apply) so re-deliveries can rehydrate reliably
         getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit().putString(lastTagKey, this.currentTag).commit();
+            .edit().putString(lastTagKey, this.currentTag).apply();
 
         // 3) Register ACTIVE_TAG + pipe listener before engine boot
         ACTIVE_TAGS.add(this.currentTag);
@@ -519,7 +519,7 @@ public class BackgroundService extends Service implements MethodChannel.MethodCa
                     updateNotificationInfo();
                     this.backgroundEngine.getServiceControlSurface().onMoveToForeground();
                 } else {
-                    stopForeground(true);
+                    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
                     this.backgroundEngine.getServiceControlSurface().onMoveToBackground();
                 }
                 result.success(true);

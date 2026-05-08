@@ -501,7 +501,12 @@ public class FlutterBackgroundServicePlugin implements FlutterPlugin, MethodCall
     public void onListen(Object arguments, EventChannel.EventSink events) {
         String tag = arguments instanceof JSONObject ? ((JSONObject) arguments).optString("tag", "default") : "default";
         synchronized (sinksByTag) {
-            sinksByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(events);
+            List<EventChannel.EventSink> sinks = sinksByTag.get(tag);
+            if (sinks == null) {
+                sinks = new ArrayList<>();
+                sinksByTag.put(tag, sinks);
+            }
+            sinks.add(events);
         }
         synchronized (eventSinks) {
             eventSinks.put(arguments, events);
