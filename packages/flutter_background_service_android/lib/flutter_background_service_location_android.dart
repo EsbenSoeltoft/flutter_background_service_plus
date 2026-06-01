@@ -82,13 +82,18 @@ class AndroidServiceInstance extends ServiceInstance {
     );
   }
 
+  @override
   Future<void> setForegroundNotificationInfo({
     required String title,
     required String content,
+    String? channelId,
+    int? notificationId,
   }) async {
     await _channel.invokeMethod("setNotificationInfo", {
       "title": title,
       "content": content,
+      if (channelId != null) "channel_id": channelId,
+      if (notificationId != null) "notification_id": notificationId,
     });
   }
 

@@ -68,6 +68,8 @@ abstract class ServiceInstance implements Observable {
   Future<void> setForegroundNotificationInfo({
     required String title,
     required String content,
+    String? channelId,
+    int? notificationId,
   }) async {}
 
   /// Android: move to Foreground Service.

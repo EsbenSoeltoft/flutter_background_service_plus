@@ -485,10 +485,21 @@ public class BackgroundServiceLocation extends Service implements MethodChannel.
                 JSONObject arg = (JSONObject) call.arguments;
                 if (arg.has("title")) {
                     this.notificationTitle = arg.getString("title");
-                    this.notificationContent = arg.getString("content");
-                    updateNotificationInfo();
-                    result.success(true);
                 }
+                if (arg.has("content")) {
+                    this.notificationContent = arg.getString("content");
+                }
+
+                if (arg.has("channel_id")) {
+                    this.notificationChannelId = arg.getString("channel_id");
+                }
+
+                if (arg.has("notification_id")) {
+                    this.notificationId = arg.getInt("notification_id");
+                }
+
+                updateNotificationInfo();
+                result.success(true);
                 return;
             }
 

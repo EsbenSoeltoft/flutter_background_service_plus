@@ -1,7 +1,7 @@
 name: flutter_background_service_platform_interface
 description: A platform interface for flutter background service.
 #version: 5.1.2
-version: 6.0.0
+version: 6.0.1
 repository: https://github.com/EsbenSoeltoft/flutter_background_service_plus
 
 publish_to: "none"

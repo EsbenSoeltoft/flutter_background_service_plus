@@ -16,10 +16,16 @@ repositories {
 
 android {
     namespace "id.flutter.flutter_background_service"
-    compileSdk 36
+    
+    // Use centralized SDK versions if built as part of the app, otherwise fallback to defaults
+    def getExtProperty = { name, defaultValue ->
+        return rootProject.ext.has(name) ? rootProject.ext.get(name) : defaultValue
+    }
+
+    compileSdk getExtProperty('compileSdkVersion', 36)
     
     defaultConfig {
-        minSdkVersion 28
+        minSdkVersion getExtProperty('minSdkVersion', 28)
         consumerProguardFiles 'consumer-proguard-rules.pro'
     }
 
